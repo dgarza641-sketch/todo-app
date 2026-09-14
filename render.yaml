@@ -17,6 +17,10 @@ services:
         sync: false
       - key: COOKIE_SECRET
         generateValue: true
+      - key: VAPID_PUBLIC_KEY
+        sync: false
+      - key: VAPID_PRIVATE_KEY
+        sync: false
 
   - type: worker
     name: daylight-reminders
@@ -31,6 +35,10 @@ services:
         fromDatabase:
           name: daylight-db
           property: connectionString
+      - key: VAPID_PUBLIC_KEY
+        sync: false
+      - key: VAPID_PRIVATE_KEY
+        sync: false
 
 databases:
   - name: daylight-db
