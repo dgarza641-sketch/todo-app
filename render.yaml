@@ -1,0 +1,39 @@
+services:
+  - type: web
+    name: daylight-tasks
+    runtime: node
+    plan: free
+    buildCommand: npm install
+    startCommand: npm start
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_VERSION
+        value: 20
+      - key: DATABASE_URL
+        fromDatabase:
+          name: daylight-db
+          property: connectionString
+      - key: APP_URL
+        sync: false
+      - key: COOKIE_SECRET
+        generateValue: true
+
+  - type: worker
+    name: daylight-reminders
+    runtime: node
+    plan: free
+    buildCommand: npm install
+    startCommand: npm run worker
+    envVars:
+      - key: NODE_VERSION
+        value: 20
+      - key: DATABASE_URL
+        fromDatabase:
+          name: daylight-db
+          property: connectionString
+
+databases:
+  - name: daylight-db
+    plan: free
+    databaseName: daylight
+    user: daylight
