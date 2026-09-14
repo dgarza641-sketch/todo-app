@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#f5f3ee" />
+    <title>Daylight — tasks that fit your day</title>
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <link rel="apple-touch-icon" href="/icon.svg" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+    <link rel="stylesheet" href="/style.css" />
+  </head>
+  <body>
+    <main>
+      <header>
+        <div>
+          <p class="eyebrow">YOUR DAY, CLEARER</p>
+          <h1>Daylight</h1>
+          <p class="subtitle">Tasks, reminders, and the calendar you already use.</p>
+        </div>
+        <div class="header-actions">
+          <button id="install-button" class="button secondary" hidden>Install on iPhone</button>
+          <a id="calendar-link" class="button secondary" href="/auth/google">Connect Google Calendar</a>
+          <button id="settings-button" class="icon-button" aria-label="Open settings">⚙</button>
+        </div>
+      </header>
+
+      <section class="composer" aria-label="Add task">
+        <form id="task-form">
+          <label class="task-name"><span>What needs doing?</span><input id="title" name="title" maxlength="240" required autocomplete="off" placeholder="e.g. Send the project update" /></label>
+          <div class="task-options">
+            <label><span>Due</span><input id="due-at" name="dueAt" type="datetime-local" /></label>
+            <label><span>Remind me</span><select id="reminder-minutes" name="reminderMinutes"><option value="0">at due time</option><option value="5">5 min before</option><option value="15" selected>15 min before</option><option value="30">30 min before</option><option value="60">1 hour before</option><option value="1440">1 day before</option></select></label>
+            <button class="button primary" type="submit">Add task</button>
+          </div>
+          <label class="notes"><span>Notes (optional)</span><input id="notes" name="notes" maxlength="2000" placeholder="A tiny detail to make starting easier" /></label>
+        </form>
+      </section>
+
+      <section class="task-section">
+        <div class="section-heading"><h2>On your list</h2><span id="task-count"></span></div>
+        <div id="task-list" class="task-list" aria-live="polite"></div>
+        <div id="empty-state" class="empty-state" hidden><span>☀</span><h2>A little breathing room.</h2><p>Add the one thing that will make today feel lighter.</p></div>
+      </section>
+
+      <section id="agenda-section" class="agenda-section" hidden>
+        <div class="section-heading"><h2>Coming up</h2><span>FROM GOOGLE CALENDAR</span></div>
+        <div id="agenda-list" class="agenda-list"></div>
+      </section>
+    </main>
+
+    <dialog id="settings-dialog">
+      <form id="settings-form" method="dialog">
+        <div class="modal-heading"><div><p class="eyebrow">PREFERENCES</p><h2>Alerts</h2></div><button class="icon-button" value="cancel" aria-label="Close settings">×</button></div>
+        <p class="muted">Browser alerts work while Daylight is open. Add an email address for dependable reminders even when it is closed.</p>
+        <label><span>Alert email</span><input id="alert-email" type="email" placeholder="you@example.com" /></label>
+        <label><span>Your time zone</span><input id="timezone" value="America/Chicago" /></label>
+        <section class="iphone-calendar"><span>iPhone Calendar</span><p>Add your private, read-only Daylight calendar to the Apple Calendar app.</p><div><a id="apple-calendar-link" class="button secondary" target="_blank" rel="noreferrer">Open calendar link</a><button id="copy-calendar-link" class="button secondary" type="button">Copy link</button></div></section>
+        <div class="modal-actions"><button id="notifications-button" class="button secondary" type="button">Enable alerts & sound</button><button class="button primary" value="save">Save preferences</button></div>
+      </form>
+    </dialog>
+
+    <template id="task-template">
+      <article class="task-card">
+        <button class="complete" aria-label="Mark task complete"></button>
+        <div class="task-content"><h3></h3><p class="task-notes"></p><p class="due"></p></div>
+        <div class="task-actions"><button class="edit-task" title="Edit task">✎</button><button class="calendar-task" title="Send or update Google Calendar">▣</button><button class="delete-task" title="Delete task">×</button></div>
+        <form class="task-edit-form" hidden>
+          <label class="task-name"><span>Title</span><input class="edit-title" maxlength="240" required autocomplete="off" /></label>
+          <div class="task-options">
+            <label><span>Due</span><input class="edit-due" type="datetime-local" /></label>
+            <label><span>Remind me</span>
+              <select class="edit-reminder">
+                <option value="0">at due time</option>
+                <option value="5">5 min before</option>
+                <option value="15">15 min before</option>
+                <option value="30">30 min before</option>
+                <option value="60">1 hour before</option>
+                <option value="1440">1 day before</option>
+              </select>
+            </label>
+            <button type="button" class="button secondary cancel-edit">Cancel</button>
+            <button type="submit" class="button primary">Save</button>
+          </div>
+          <label class="notes"><span>Notes (optional)</span><input class="edit-notes" maxlength="2000" /></label>
+        </form>
+      </article>
+    </template>
+    <div id="toast" role="status"></div>
+    <script src="/app.js"></script>
+  </body>
+</html>
