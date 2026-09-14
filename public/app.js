@@ -3,6 +3,9 @@ const emptyState = document.querySelector('#empty-state');
 const taskTemplate = document.querySelector('#task-template');
 const toast = document.querySelector('#toast');
 let tasks = [];
+let deferredInstallPrompt;
+let audioContext;
+const soundedTaskIds = new Set();
 
 function showToast(message, isError = false) {
   toast.textContent = message; toast.className = isError ? 'visible error' : 'visible';
@@ -25,6 +28,64 @@ function relativeDue(dateString) {
   return `${day} · ${time}`;
 }
 
+// Converts an ISO date string into the "YYYY-MM-DDTHH:mm" format
+// that <input type="datetime-local"> expects, in the browser's local time.
+function toDatetimeLocalValue(dateString) {
+  if (!dateString) return '';
+  const date = new Date(dateString);
+  const localTime = new Date(date.getTime() - date.getTimezoneOffset() * 60_000);
+  return localTime.toISOString().slice(0, 16);
+}
+
+function attachEditHandlers(card, task) {
+  const content = card.querySelector('.task-content');
+  const actions = card.querySelector('.task-actions');
+  const editForm = card.querySelector('.task-edit-form');
+  const editTitle = editForm.querySelector('.edit-title');
+  const editNotes = editForm.querySelector('.edit-notes');
+  const editDue = editForm.querySelector('.edit-due');
+  const editReminder = editForm.querySelector('.edit-reminder');
+
+  function openEdit() {
+    editTitle.value = task.title;
+    editNotes.value = task.notes || '';
+    editDue.value = toDatetimeLocalValue(task.due_at);
+    editReminder.value = String(task.reminder_minutes ?? 15);
+    content.hidden = true;
+    actions.hidden = true;
+    editForm.hidden = false;
+    card.classList.add('editing');
+    editTitle.focus();
+  }
+
+  function closeEdit() {
+    editForm.hidden = true;
+    content.hidden = false;
+    actions.hidden = false;
+    card.classList.remove('editing');
+  }
+
+  card.querySelector('.edit-task').addEventListener('click', openEdit);
+  editForm.querySelector('.cancel-edit').addEventListener('click', closeEdit);
+
+  editForm.addEventListener('submit', async event => {
+    event.preventDefault();
+    try {
+      const payload = {
+        title: editTitle.value,
+        notes: editNotes.value,
+        reminderMinutes: Number(editReminder.value),
+        dueAt: editDue.value ? new Date(editDue.value).toISOString() : null
+      };
+      await api(`/api/tasks/${task.id}`, { method: 'PATCH', body: JSON.stringify(payload) });
+      showToast('Task updated.');
+      await loadTasks();
+    } catch (error) {
+      showToast(error.message, true);
+    }
+  });
+}
+
 function render() {
   taskList.innerHTML = '';
   const openTasks = tasks.filter(task => !task.completed_at);
@@ -42,11 +103,45 @@ function render() {
       try { const result = await api(`/api/tasks/${task.id}/calendar`, { method: 'POST' }); showToast('Sent to Google Calendar.'); if (result.eventUrl) window.open(result.eventUrl, '_blank', 'noopener'); }
       catch (error) { showToast(error.message, true); }
     });
+    attachEditHandlers(card, task);
     taskList.append(card);
   }
 }
 
 async function loadTasks() { tasks = await api('/api/tasks'); render(); }
+
+function playReminderChime() {
+  try {
+    audioContext ||= new (window.AudioContext || window.webkitAudioContext)();
+    const now = audioContext.currentTime;
+    [0, 0.19].forEach((offset, index) => {
+      const oscillator = audioContext.createOscillator(), gain = audioContext.createGain();
+      oscillator.frequency.value = index ? 880 : 660; gain.gain.setValueAtTime(0.0001, now + offset); gain.gain.exponentialRampToValueAtTime(0.12, now + offset + .02); gain.gain.exponentialRampToValueAtTime(.0001, now + offset + .16);
+      oscillator.connect(gain).connect(audioContext.destination); oscillator.start(now + offset); oscillator.stop(now + offset + .17);
+    });
+  } catch { /* Sound depends on device/browser audio permissions. */ }
+}
+
+function urlBase64ToUint8Array(base64String) {
+  const padding = '='.repeat((4 - base64String.length % 4) % 4);
+  const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
+  return Uint8Array.from(atob(base64), character => character.charCodeAt(0));
+}
+
+async function registerPushAlerts() {
+  if (!('serviceWorker' in navigator) || !('PushManager' in window)) return showToast('Install Daylight to your Home Screen, then enable alerts.', true);
+  const permission = await Notification.requestPermission();
+  if (permission !== 'granted') return showToast('Alerts were not enabled.', true);
+  playReminderChime();
+  try {
+    const { publicKey } = await api('/api/push/public-key');
+    const registration = await navigator.serviceWorker.ready;
+    let subscription = await registration.pushManager.getSubscription();
+    if (!subscription) subscription = await registration.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: urlBase64ToUint8Array(publicKey) });
+    await api('/api/push/subscribe', { method: 'POST', body: JSON.stringify(subscription) });
+    showToast('Background alerts are ready.');
+  } catch (error) { showToast(error.message, true); }
+}
 
 async function loadAgenda() {
   const events = await api('/api/calendar/events');
@@ -71,11 +166,8 @@ document.querySelector('#task-form').addEventListener('submit', async event => {
 
 const dialog = document.querySelector('#settings-dialog');
 document.querySelector('#settings-button').addEventListener('click', () => dialog.showModal());
-document.querySelector('#notifications-button').addEventListener('click', async () => {
-  if (!('Notification' in window)) return showToast('This browser does not support alerts.', true);
-  const permission = await Notification.requestPermission();
-  showToast(permission === 'granted' ? 'Browser alerts are ready.' : 'Browser alerts were not enabled.', permission !== 'granted');
-});
+document.querySelector('#notifications-button').addEventListener('click', registerPushAlerts);
+document.querySelector('#copy-calendar-link').addEventListener('click', async () => { await navigator.clipboard.writeText(document.querySelector('#apple-calendar-link').href); showToast('Apple Calendar link copied.'); });
 document.querySelector('#settings-form').addEventListener('submit', async event => {
   if (event.submitter?.value !== 'save') return;
   event.preventDefault();
@@ -90,13 +182,23 @@ async function loadStatus() {
   const calendarLink = document.querySelector('#calendar-link');
   if (status.calendar_connected) { calendarLink.textContent = 'Google Calendar connected'; calendarLink.classList.add('connected'); loadAgenda().catch(() => {}); }
   if (!status.googleConfigured) calendarLink.title = 'Add Google OAuth credentials on Render first.';
+  document.querySelector('#apple-calendar-link').href = status.calendarFeedUrl;
+  document.querySelector('#apple-calendar-link').textContent = 'Open calendar link';
+  if (!status.pushConfigured) document.querySelector('#notifications-button').title = 'Background alerts finish setup after VAPID keys are added on Render.';
 }
 
 function browserAlarm() {
   if (Notification.permission !== 'granted') return;
   const now = Date.now();
-  tasks.filter(t => !t.completed_at && t.due_at && new Date(t.due_at).getTime() - (t.reminder_minutes * 60_000) <= now && new Date(t.due_at).getTime() > now - 65_000).forEach(t => new Notification('Daylight reminder', { body: `${t.title} is due ${relativeDue(t.due_at)}.` }));
+  tasks.filter(t => !t.completed_at && t.due_at && new Date(t.due_at).getTime() - (t.reminder_minutes * 60_000) <= now && new Date(t.due_at).getTime() > now - 65_000 && !soundedTaskIds.has(t.id)).forEach(t => { soundedTaskIds.add(t.id); new Notification('Daylight reminder', { body: `${t.title} is due ${relativeDue(t.due_at)}.` }); playReminderChime(); });
 }
+
+if ('serviceWorker' in navigator) window.addEventListener('load', () => navigator.serviceWorker.register('/service-worker.js').catch(() => {}));
+window.addEventListener('beforeinstallprompt', event => { event.preventDefault(); deferredInstallPrompt = event; document.querySelector('#install-button').hidden = false; });
+document.querySelector('#install-button').addEventListener('click', async () => {
+  if (deferredInstallPrompt) { deferredInstallPrompt.prompt(); await deferredInstallPrompt.userChoice; deferredInstallPrompt = null; document.querySelector('#install-button').hidden = true; }
+  else showToast('On iPhone: tap Share, then Add to Home Screen.');
+});
 
 Promise.all([loadStatus(), loadTasks()]).catch(error => showToast(error.message, true));
 setInterval(() => { loadTasks().then(browserAlarm).catch(() => {}); }, 60_000);
